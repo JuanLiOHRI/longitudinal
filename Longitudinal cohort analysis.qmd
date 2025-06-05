@@ -1,0 +1,1023 @@
+---
+title: "Example for repeated measures analysis"
+author: "Juan Li"
+date: 2025-04-15
+format: pptx
+editor: visual
+---
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+#| output: false
+
+# Data manipulation
+library(dplyr)      
+library(tidyr)
+
+# Table 1
+library(gtsummary)
+
+# Data visualization
+library(ggplot2)    
+library(ggbeeswarm)
+
+# ROC/AUC
+library(pROC)
+```
+
+## Read data
+
+```{r}
+data  <- read.csv("longitudinal data.csv", header = T, check.names=FALSE, na.strings=c("",".","NA"))
+names(data)
+```
+
+```{r}
+# set categories of the categorical variables
+data$visit <- factor(data$visit, levels = c("baseline", "24FU", "48FU", "72FU", "96FU"))
+data$converted <- factor(data$converted, levels = c("Not converted", "Converted"))
+data$sex <- factor(data$sex, levels = c("Female", "Male"))
+data$olfaction <- factor(data$olfaction, levels = c("Normal", "Reduced"))
+data$olfaction.BL <- factor(data$olfaction.BL, levels = c("Normal", "Reduced"))
+data$status.current <- factor(data$status.current, levels = c("Conversion diagnosis", "Converted", "Lost", "Dead", "In study"))
+data$is_converted <- factor(data$is_converted, levels = c("Not yet converted", "Already converted"))
+data$is_lost <- factor(data$is_lost, levels = c("No", "Yes"))
+data$is_dead <- factor(data$is_dead, levels = c("No", "Yes"))
+```
+
+```{r}
+#| warning: false
+#| fig-width: 6
+#| fig-height: 8
+
+ggplot(data, aes(months, ID)) +
+  geom_line(aes(group = ID), alpha = 0.5)+
+  geom_point(aes(group = ID, color = status.current, shape = status.current, size = status.current)) +
+  scale_y_continuous(breaks = unique(data$ID), labels = unique(data$ID))+
+  scale_color_manual(values = c("brown", "red", "forestgreen", "black", "blue")) +
+  scale_shape_manual(values = c(15, 15, 8, 17, 1)) +
+  scale_size_manual(values = c(2, 2, 2, 2, 0.5)) +
+  labs(x = "Months in study")+
+  theme_bw() +
+  theme(text = element_text(size = 12),
+        axis.title.y = element_blank(),
+        legend.title = element_blank(),
+        legend.position = c(0.7, 0.88))
+```
+
+```{r}
+df <- data %>% filter(status.current!= "Conversion diagnosis") %>% droplevels() %>% 
+  group_by(ID) %>% slice_tail() %>% ungroup()
+table(df$status.current, df$converted, useNA = "ifany")
+table(df$converted, useNA = "ifany")
+table(df$diagnosis, useNA = "ifany")
+```
+
+## Summary Statistics
+
+```{r}
+data_old <- data
+data <- data %>% filter(status.current %in% c("In study", "Converted")) %>% droplevels() # remove the rows added for the above plot
+
+data %>% 
+  group_by(converted, visit) %>% 
+  summarise(mean = mean(Sniffin.Sticks.ID, na.rm = T),
+            sd = sd(Sniffin.Sticks.ID, na.rm = T),
+            median = median(Sniffin.Sticks.ID, na.rm = T),
+            q_25 = quantile(Sniffin.Sticks.ID, 0.25, na.rm = T),
+            q_75 = quantile(Sniffin.Sticks.ID, 0.75, na.rm = T))
+```
+
+```{r}
+data %>% 
+  group_by(converted, visit) %>% 
+  rstatix::get_summary_stats(Sniffin.Sticks.ID)
+```
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+
+df_tbl <- data %>% filter(visit == "baseline") %>% select(converted, sex, age)
+
+# gtsummary
+df_tbl %>% 
+  tbl_summary(by = converted,
+              missing = "ifany") %>% 
+  add_p() %>% 
+  modify_header(label = "**Variable**") %>% # update the column header
+  bold_labels() %>% 
+  as_flex_table()
+```
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+
+df_tbl <- data %>% select(ID, converted, visit, Sniffin.Sticks.ID) %>% 
+  # pivot the table to make scores in each visit a separate variable
+  pivot_wider(names_from = visit, values_from = Sniffin.Sticks.ID) 
+# update variable name
+names(df_tbl)[c(3:ncol(df_tbl))] <- paste0("SST_ID_", names(df_tbl)[c(3:ncol(df_tbl))])
+
+# gtsummary
+df_tbl %>% 
+  select(-ID) %>% 
+  tbl_summary(by = converted,
+              missing = "ifany",
+              type = list("SST_ID_96FU" ~ "continuous")) %>% 
+  add_p() %>% 
+  modify_header(label = "**Variable**") %>% # update the column header
+  bold_labels() %>% 
+  as_flex_table()
+```
+
+```{r}
+#| fig-width: 8
+#| fig-height: 4
+#| warning: false
+#| message: false
+
+alpha <- 0.5
+
+ggplot(data, aes(visit, Sniffin.Sticks.ID, color = converted, fill = converted))+
+  geom_violin(alpha = alpha,draw_quantiles = c(0.25, 0.5, 0.75)) +
+  geom_quasirandom(dodge.width=1) +
+  labs(y = "SST-ID score") +
+  theme_bw() +
+  theme(text = element_text(size = 12),
+        axis.title.x = element_blank(),
+        legend.title = element_blank(),
+        legend.position = "top")
+
+ggplot(data, aes(converted, Sniffin.Sticks.ID, color = visit, fill = visit))+
+  geom_violin(alpha = alpha,draw_quantiles = c(0.25, 0.5, 0.75)) +
+  geom_quasirandom(dodge.width=0.9) +
+  labs(y = "SST-ID score") +
+  theme_bw() +
+  theme(text = element_text(size = 12),
+        axis.title.x = element_blank(),
+        legend.title = element_blank(),
+        legend.position = "top")
+```
+
+```{r}
+#| fig-width: 8
+#| fig-height: 4
+#| warning: false
+#| message: false
+
+# https://github.com/tidyverse/ggplot2/issues/3535
+
+dfPlt <- data %>% arrange(ID, converted, visit)
+ggplot(dfPlt, aes(visit, Sniffin.Sticks.ID, color = converted, fill = converted, group = ID))+
+  geom_point(aes(size = is_converted), alpha = alpha) +
+  geom_line(alpha = alpha) +
+  geom_smooth(aes(group = converted), se = FALSE, size=2)+
+  geom_smooth(aes(group = converted), se = FALSE, size=2, method = "lm", linetype = "dashed")+
+  stat_summary(aes(group = converted), geom = "point", fun.y = mean,
+               shape = 17, size = 3, color = "black") +
+  scale_size_manual(values = c(0.5,2)) +
+  labs(title = "All", y = "SST-ID score") +
+  theme_bw() +
+  theme(text = element_text(size = 12),
+        axis.title.x = element_blank(),
+        legend.title = element_blank())
+
+ggplot(dfPlt, aes(visit, Sniffin.Sticks.ID, color = converted, fill = converted, group = ID))+
+  geom_point(aes(size = is_converted), position = position_jitter(width = 0.2, height = 0, seed = 100), alpha = alpha) +
+  geom_line(position = position_jitter(width = 0.2, height = 0, seed = 100), alpha = alpha) +
+  geom_smooth(aes(group = converted), se = FALSE, size=2)+
+  geom_smooth(aes(group = converted), se = FALSE, size=2, method = "lm", linetype = "dashed")+
+  stat_summary(aes(group = converted), geom = "point", fun.y = mean,
+               shape = 17, size = 3, color = "black") +
+  scale_size_manual(values = c(0.5,2)) +
+  labs(title = "All, jittered", y = "SST-ID score") +
+  theme_bw() +
+  theme(text = element_text(size = 12),
+        axis.title.x = element_blank(),
+        legend.title = element_blank())
+
+# For participants have at least 2 visits
+df <- data %>% group_by(ID) %>% summarise(count = n())
+table(df$count)
+df <- df %>% filter(count > 1)
+
+dfPlt <- data %>% filter(ID %in% df$ID) %>% droplevels() %>% arrange(ID, converted, visit)
+ggplot(dfPlt, aes(visit, Sniffin.Sticks.ID, color = converted, fill = converted, group = ID))+
+  geom_point(aes(size = is_converted), alpha = alpha) +
+  geom_line(alpha = alpha) +
+  geom_smooth(aes(group = converted), se = FALSE, size=2)+
+  geom_smooth(aes(group = converted), se = FALSE, size=2, method = "lm", linetype = "dashed")+
+  stat_summary(aes(group = converted), geom = "point", fun.y = mean,
+               shape = 17, size = 3, color = "black") +
+  scale_size_manual(values = c(0.5,2)) +
+  labs(title = "At least one follow-up", y = "SST-ID score") +
+  theme_bw() +
+  theme(text = element_text(size = 12),
+        axis.title.x = element_blank(),
+        legend.title = element_blank())
+
+ggplot(dfPlt, aes(visit, Sniffin.Sticks.ID, color = converted, fill = converted, group = ID))+
+  geom_point(aes(size = is_converted), position = position_jitter(width = 0.2, height = 0, seed = 100), alpha = alpha) +
+  geom_line(position = position_jitter(width = 0.2, height = 0, seed = 100), alpha = alpha) +
+  geom_smooth(aes(group = converted), se = FALSE, size=2)+
+  geom_smooth(aes(group = converted), se = FALSE, size=2, method = "lm", linetype = "dashed")+
+  stat_summary(aes(group = converted), geom = "point", fun.y = mean,
+               shape = 17, size = 3, color = "black") +
+  scale_size_manual(values = c(0.5,2)) +
+  labs(title = "At least one follow-up, jittered", y = "SST-ID score") +
+  theme_bw() +
+  theme(text = element_text(size = 12),
+        axis.title.x = element_blank(),
+        legend.title = element_blank())
+```
+
+```{r}
+#| warning: false
+#| message: false
+
+ggplot(data, aes(months, Sniffin.Sticks.ID, color = converted, fill = converted, group = ID))+
+  geom_point(aes(size = is_converted), alpha = alpha) +
+  geom_line(alpha = alpha) +
+  geom_smooth(aes(group = converted), se = FALSE, size=2)+
+  geom_smooth(aes(group = converted), se = FALSE, size=2, method = "lm", linetype = "dashed")+
+  stat_summary(aes(group = converted), geom = "point", fun.y = mean,
+               shape = 17, size = 3) +
+  scale_size_manual(values = c(0.5,2)) +
+  labs(y = "SST-ID score", x = "Months in study") +
+  theme_bw() +
+  theme(text = element_text(size = 12),
+        legend.title = element_blank())
+```
+
+```{r}
+#| warning: false
+#| message: false
+
+ggplot(data, aes(age, Sniffin.Sticks.ID, color = converted, fill = converted, group = ID))+
+  geom_point(aes(size = is_converted), alpha = alpha) +
+  geom_line(alpha = alpha) +
+  geom_smooth(aes(group = converted), se = FALSE, size=2)+
+  geom_smooth(aes(group = converted), se = FALSE, size=2, method = "lm", linetype = "dashed")+
+  stat_summary(aes(group = converted), geom = "point", fun.y = mean,
+               shape = 17, size = 3) +
+  scale_size_manual(values = c(0.5,2)) +
+  labs(x = "Age (year)", y = "SST-ID score") +
+  theme_bw() +
+  theme(text = element_text(size = 12),
+        legend.title = element_blank())
+
+ggplot(data %>% filter(age>40), aes(age, Sniffin.Sticks.ID, color = converted, fill = converted, group = ID))+
+  geom_point(aes(size = is_converted), alpha = alpha) +
+  geom_line(alpha = alpha) +
+  geom_smooth(aes(group = converted), se = FALSE, size=2)+
+  geom_smooth(aes(group = converted), se = FALSE, size=2, method = "lm", linetype = "dashed")+
+  stat_summary(aes(group = converted), geom = "point", fun.y = mean,
+               shape = 17, size = 3) +
+  scale_size_manual(values = c(0.5,2)) +
+  labs(x = "Age (year)", y = "SST-ID score") +
+  theme_bw() +
+  theme(text = element_text(size = 12),
+        legend.title = element_blank())
+```
+
+```{r}
+#| warning: false
+#| message: false
+
+ggplot(data, aes(RBD_duration, Sniffin.Sticks.ID, color = converted, fill = converted, group = ID))+
+  geom_point(aes(size = is_converted), alpha = alpha) +
+  geom_line(alpha = alpha) +
+  geom_smooth(aes(group = converted), se = FALSE, size=2)+
+  geom_smooth(aes(group = converted), se = FALSE, size=2, method = "lm", linetype = "dashed")+
+  stat_summary(aes(group = converted), geom = "point", fun.y = mean,
+               shape = 17, size = 3) +
+  scale_size_manual(values = c(0.5,2)) +
+  labs(x = "Duration since RBD diagnosis (year)", y = "SST-ID score") +
+  theme_bw() +
+  theme(text = element_text(size = 12),
+        legend.title = element_blank())
+```
+
+```{r}
+#| warning: false
+#| message: false
+
+ggplot(data, aes(time_to_conversion, Sniffin.Sticks.ID, color = converted, fill = converted, group = ID))+
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  geom_point(aes(size = is_converted), alpha = alpha) +
+  geom_line(alpha = alpha) +
+  geom_smooth(aes(group = converted), se = FALSE, size=2)+
+  geom_smooth(aes(group = converted), se = FALSE, size=2, method = "lm", linetype = "dashed")+
+  scale_size_manual(values = c(0.5,2)) +
+  ylim(0,16) +
+  labs(x = "Time relative to pheno-conversion (year)", y = "SST-ID score") +
+  theme_bw() +
+  theme(text = element_text(size = 12),
+        legend.title = element_blank())
+
+ggplot(data, aes(time_to_conversion, Sniffin.Sticks.ID, color = converted, fill = converted, group = ID))+
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  geom_point(aes(size = is_converted), alpha = alpha) +
+  geom_line(alpha = alpha) +
+  geom_smooth(data = dfPlt %>% filter(time_to_conversion <= 0), aes(group = converted), se = FALSE, size=2, color = "black")+
+  geom_smooth(data = dfPlt %>% filter(time_to_conversion <= 0), aes(group = converted), se = FALSE, size=2, method = "lm", linetype = "dashed", color = "black")+
+  geom_smooth(data = dfPlt %>% filter(time_to_conversion >= 0), aes(group = converted), se = FALSE, size=2, color = "red")+
+  geom_smooth(data = dfPlt %>% filter(time_to_conversion >= 0), aes(group = converted), se = FALSE, size=2, method = "lm", linetype = "dashed", color = "red")+
+  scale_size_manual(values = c(0.5,2)) +
+  ylim(0,16) +
+  labs(x = "Time relative to pheno-conversion (year)", y = "SST-ID score") +
+  theme_bw() +
+  theme(text = element_text(size = 12),
+        legend.title = element_blank())
+```
+
+# Linear Mixed Models
+
+https://rpubs.com/alecri/review_longitudinal
+
+```{r}
+library(lme4)
+library(Epi)      # easy getting CI for model coef/pred: ci.lin
+library(lmerTest) # test for linear mixed-effects models: ranova
+library(emmeans)  # marginal means: emmeans
+library(rstatix)  # Anova, and a version of tidy, call with rstatix::tidy to differentiate it with broom::tidy
+```
+
+## Time effect
+
+```{r}
+#| warning: false
+#| message: false
+
+df <- data %>% filter(!is.na(Sniffin.Sticks.ID)) %>% droplevels()
+lin_time <- lmer(Sniffin.Sticks.ID ~ RBD_duration + (1 | ID), data = df)
+summary(lin_time)
+print("-----------------------")
+ci.lin(lin_time)
+print("-----------------------")
+Anova(lin_time)
+
+fit <- bind_cols(
+  df, pred_time = predict(lin_time, re.form = ~ 0)
+)
+ggplot(fit, aes(RBD_duration, Sniffin.Sticks.ID)) +
+  geom_line(aes(group = ID), alpha = alpha) +
+  geom_point(aes(y = pred_time), col = "blue", size = 2) +
+  geom_line(aes(y = pred_time), col = "blue", linetype = "dashed") +
+  labs(title = "Time effect", x = "Duration since RBD diagnosis (year)", y = "SST-ID score")+
+  theme_bw()+
+  theme(legend.title = element_blank())
+```
+
+## Group effect
+
+```{r}
+#| warning: false
+
+lin_group <- lmer(Sniffin.Sticks.ID ~ RBD_duration + converted + (1 | ID), data = df)
+summary(lin_group)
+print("-----------------------")
+ci.lin(lin_group)
+
+fit$pred_group <- predict(lin_group, re.form = ~ 0)
+ggplot(fit, aes(RBD_duration, Sniffin.Sticks.ID)) +
+  geom_line(aes(group = ID, color = converted), alpha = alpha) +
+  geom_point(aes(y = pred_group, color = converted), size = 2) +
+  geom_line(aes(y = pred_group, color = converted), linetype = "dashed") +
+  labs(title = "Group effect", x = "Duration since RBD diagnosis (year)", y = "SST-ID score")+
+  theme_bw()+
+  theme(legend.title = element_blank(),
+        legend.position = "bottom")
+```
+
+## Interaction between time and group
+
+Question: Is the change of the mean response over time varying according to group of individuals?
+
+```{r}
+#| warning: false
+
+lin_inter <- lmer(Sniffin.Sticks.ID ~ RBD_duration*converted + (1 | ID), data = df)
+summary(lin_inter)
+print("-----------------------")
+ci.lin(lin_inter)
+print("-----------------------")
+Anova(lin_inter, type = 3)
+
+fit$pred_inter <- predict(lin_inter, re.form = ~ 0)
+ggplot(fit, aes(RBD_duration, Sniffin.Sticks.ID)) +
+  geom_line(aes(group = ID, color = converted), alpha = alpha) +
+  geom_line(aes(y = pred_group, color = converted), linetype = "dashed") +
+  geom_point(aes(y = pred_inter, color = converted), size = 2) +
+  labs(title = "Interaction between time and group", x = "Duration since RBD diagnosis (year)", y = "SST-ID score")+
+  theme_bw()+
+  theme(legend.title = element_blank(),
+        legend.position = "bottom")
+```
+
+## time_to_conversion
+
+https://rpubs.com/alecri/review_longitudinal
+
+Influence of Menarche on Changes in Body Fat
+
+```{r}
+df_conv <- data %>% filter(converted == "Converted", !is.na(Sniffin.Sticks.ID)) %>% droplevels()
+lin_visit_conv <- lmer(Sniffin.Sticks.ID ~ time_to_conversion + (1 | ID), data = df_conv)
+summary(lin_visit_conv)
+print("-----------------------")
+ci.lin(lin_visit_conv)
+
+fit2 <- bind_cols(
+  df_conv, pred_visit_conv = predict(lin_visit_conv, re.form = ~ 0)
+)
+ggplot(fit2, aes(time_to_conversion, Sniffin.Sticks.ID)) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  geom_line(aes(group = ID), alpha = alpha) +
+  geom_point(aes(y = pred_visit_conv), col = "blue", size = 2) +
+  labs(title = "Linear Mixed Model", x = "Time relative to pheno-conversion (year)", y = "SST-ID score")+
+  theme_bw()+
+  theme(legend.title = element_blank())
+```
+
+```{r}
+df_conv_1 <- df_conv %>% filter(time_to_conversion <= 0)
+lin_visit_conv_1 <- lmer(Sniffin.Sticks.ID ~ time_to_conversion + (1 | ID), data = df_conv_1)
+summary(lin_visit_conv_1)
+print("-----------------------")
+ci.lin(lin_visit_conv_1)
+print("-----------------------")
+Anova(lin_visit_conv_1)
+
+fit2_1 <- bind_cols(
+  df_conv_1, pred_visit_conv = predict(lin_visit_conv_1, re.form = ~ 0)
+)
+
+df_conv_2 <- df_conv %>% filter(time_to_conversion >= 0)
+lin_visit_conv_2 <- lmer(Sniffin.Sticks.ID ~ time_to_conversion + (1 | ID), data = df_conv_2)
+summary(lin_visit_conv_2)
+print("-----------------------")
+ci.lin(lin_visit_conv_2)
+print("-----------------------")
+Anova(lin_visit_conv_2)
+
+fit2_2 <- bind_cols(
+  df_conv_2, pred_visit_conv = predict(lin_visit_conv_2, re.form = ~ 0)
+)
+
+fit2_combine <- bind_rows(fit2_1, fit2_2)
+ggplot(fit2_combine, aes(time_to_conversion, Sniffin.Sticks.ID)) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  geom_line(aes(group = ID), alpha = alpha) +
+  geom_point(data = fit2_1, aes(y = pred_visit_conv), col = "black", size = 2) +
+  geom_point(data = fit2_2, aes(y = pred_visit_conv), col = "red", size = 2) +
+  labs(title = "Linear Mixed Model", x = "Time relative to pheno-conversion (year)", y = "SST-ID score")+
+  theme_bw()+
+  theme(legend.title = element_blank())
+```
+
+```{r}
+df_conv <- df_conv %>%
+  mutate(timepost = pmax(time_to_conversion, 0))
+lin_lspl0 <- lmer(Sniffin.Sticks.ID ~ time_to_conversion + timepost + (time_to_conversion + timepost | ID), data = df_conv)
+summary(lin_lspl0)
+print("-----------------------")
+ci.lin(lin_lspl0)
+
+K <- rbind(
+  "population mean pre-conversion slope" = c(0, 1, 0),
+  "population mean post-conversion slope" = c(0, 1, 1)
+)
+rstatix::tidy(multcomp::glht(lin_lspl0, linfct = K), conf.int = TRUE)
+
+fit2$pred_lspl0 <- predict(lin_lspl0, re.form = ~ 0)
+ggplot(fit2, aes(time_to_conversion, Sniffin.Sticks.ID)) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  geom_line(aes(group = ID), alpha = alpha) +
+  geom_point(aes(y = pred_lspl0, color = is_converted), size = 2) +
+  scale_color_manual(values = c("black", "red"))+
+  labs(title = "Linear Mixed Model", x = "Time relative to pheno-conversion (year)", y = "SST-ID score")+
+  theme_bw()+
+  theme(legend.title = element_blank(),
+        legend.position = "none")
+```
+
+# Survival
+
+https://stats.oarc.ucla.edu/wp-content/uploads/2025/02/survival_r_full.html
+
+https://www.sthda.com/english/wiki/survival-analysis-basics
+
+https://www.emilyzabor.com/survival-analysis-in-r.html
+
+https://rpkgs.datanovia.com/survminer/
+
+```{r}
+library(survival)
+library(survminer)   # for customizable graphs of survival function
+library(broom)       # for tidy output 
+```
+
+```{r}
+# for not converted cases, choose the last visit
+df1 <- data %>% filter(converted == "Not converted") %>% 
+  group_by(ID) %>% 
+  slice_tail() %>% 
+  ungroup() %>% 
+  select(ID, converted, months, RBD_duration, age, sex, olfaction.BL, SST.ID.BL, SST.ID.perc.BL) %>% 
+  mutate(status = 0) # 0 = censored
+
+# for converted cases, find their RBD duration at time of conversion diagnosis
+df2 <- data_old %>% 
+  filter(status.current == "Conversion diagnosis") %>% 
+  select(ID, converted, months, RBD_duration, age, sex, olfaction.BL, SST.ID.BL, SST.ID.perc.BL) %>% 
+  mutate(status = 1) # 1 = event 
+
+df_surv <- bind_rows(df1, df2) %>% arrange(ID)
+
+df <- df_surv %>% select(converted, sex, olfaction.BL) 
+df$new <- paste(df$sex, df$olfaction.BL, sep = ": ")
+table(df %>% select(new, converted))
+```
+
+```{r}
+#| warning: false
+
+ggplot(df_surv, aes(converted, SST.ID.BL, color = olfaction.BL, fill = olfaction.BL)) +
+  geom_violin(alpha = 0.3,draw_quantiles = c(0.25, 0.5, 0.75)) +
+  geom_quasirandom(dodge.width=1) +
+  labs(y = "SST-ID score") +
+  theme_bw() +
+  theme(text = element_text(size = 12),
+        axis.title.x = element_blank(),
+        legend.title = element_blank(),
+        legend.position = "top")
+
+ggplot(df_surv, aes(converted, SST.ID.perc.BL, color = olfaction.BL, fill = olfaction.BL)) +
+  geom_violin(alpha = 0.3,draw_quantiles = c(0.25, 0.5, 0.75)) +
+  geom_hline(yintercept = 10, linetype = "dashed") +
+  geom_quasirandom(dodge.width=1) +
+  labs(y = "SST-ID percentile") +
+  theme_bw() +
+  theme(text = element_text(size = 12),
+        axis.title.x = element_blank(),
+        legend.title = element_blank(),
+        legend.position = "top")
+```
+
+```{r}
+#| warning: false
+
+# using a different cut-value
+roc_1 <- roc(df_surv$converted, df_surv$SST.ID.BL, levels=c("Not converted","Converted"), na.rm=TRUE, ci=TRUE) 
+print(paste0("AUC: ", round(roc_1$auc, 3), " (", round(roc_1$ci[1], 3), "-", round(roc_1$ci[3], 3), ")"))
+temp <- roc_1$sensitivities + roc_1$specificities
+ind <- which(temp == max(temp))
+(cut <- roc_1$thresholds[ind])
+roc_1$sensitivities[ind]
+roc_1$specificities[ind]
+
+df_surv <- df_surv %>% mutate(smell_cat = ifelse(SST.ID.BL < cut, "worse", "better"))
+ggplot(df_surv, aes(converted, SST.ID.BL, color = smell_cat, fill = smell_cat)) +
+  geom_violin(alpha = 0.3,draw_quantiles = c(0.25, 0.5, 0.75)) +
+  geom_quasirandom(dodge.width=1) +
+  geom_hline(yintercept = cut, linetype = "dashed") +
+  labs(y = "SST-ID score") +
+  theme_bw() +
+  theme(text = element_text(size = 12),
+        axis.title.x = element_blank(),
+        legend.title = element_blank(),
+        legend.position = "top")
+```
+
+## Kaplan-Meier estimator of the survival function
+
+```{r}
+#| fig-width: 6
+#| fig-height: 6
+#| warning: false
+
+fit <- survfit(Surv(RBD_duration, status) ~ sex, data=df_surv)
+
+ggsurvplot(
+  fit,
+  conf.int = TRUE,          # Add confidence interval
+  pval = TRUE,              # Add p-value
+  censor.shape="|", 
+  censor.size = 4,
+  risk.table = TRUE,        # Add risk table
+  risk.table.col = "strata",
+  risk.table.y.text.col = T, # colour risk table text annotations.
+  risk.table.y.text = FALSE, # show bars instead of names in text annotations in legend of risk table
+  risk.table.height = 0.2, # the height of the risk table
+  ncensor.plot = TRUE,      # plot the number of censored subjects at time t
+  ncensor.plot.height = 0.2,
+  surv.median.line = "hv",  # add the median survival pointer.
+  ggtheme = theme_bw(),      # Change ggplot2 theme
+  ylab = "Not converted probablity",
+  xlab = "Duration since RBD diagnosis (year)"
+)
+
+# log rank test
+survdiff(Surv(RBD_duration, status) ~ sex, data=df_surv)
+```
+
+```{r}
+#| fig-width: 6
+#| fig-height: 6
+#| warning: false
+
+fit <- survfit(Surv(months, status) ~ sex, data=df_surv)
+
+ggsurvplot(
+  fit,
+  conf.int = TRUE,          # Add confidence interval
+  pval = TRUE,              # Add p-value
+  censor.shape="|", 
+  censor.size = 4,
+  risk.table = TRUE,        # Add risk table
+  risk.table.col = "strata",
+  risk.table.y.text.col = T, # colour risk table text annotations.
+  risk.table.y.text = FALSE, # show bars instead of names in text annotations in legend of risk table
+  risk.table.height = 0.2, # the height of the risk table
+  ncensor.plot = TRUE,      # plot the number of censored subjects at time t
+  ncensor.plot.height = 0.2,
+  surv.median.line = "hv",  # add the median survival pointer.
+  ggtheme = theme_bw(),      # Change ggplot2 theme
+  ylab = "Not converted probablity",
+  xlab = "Months in study"
+)
+
+# log rank test
+survdiff(Surv(months, status) ~ sex, data=df_surv)
+```
+
+```{r}
+#| warning: false
+
+# “log”: log transformation of the survivor function,
+ggsurvplot(
+  fit,
+  conf.int = TRUE,          # Add confidence interval
+  pval = TRUE,              # Add p-value
+  censor.shape="|", 
+  censor.size = 4,
+  ggtheme = theme_bw(),      # Change ggplot2 theme
+  xlab = "Months in study",
+  fun = "log"
+)
+
+# “event”: plots cumulative events (f(y) = 1-y). It’s also known as the cumulative incidence
+ggsurvplot(
+  fit,
+  conf.int = TRUE,          # Add confidence interval
+  pval = TRUE,              # Add p-value
+  censor.shape="|", 
+  censor.size = 4,
+  ggtheme = theme_bw(),      # Change ggplot2 theme
+  xlab = "Months in study",
+  fun = "event"
+)
+
+# “cumhaz” plots the cumulative hazard function (f(y) = -log(y))
+ggsurvplot(
+  fit,
+  conf.int = TRUE,          # Add confidence interval
+  pval = TRUE,              # Add p-value
+  censor.shape="|", 
+  censor.size = 4,
+  ggtheme = theme_bw(),      # Change ggplot2 theme
+  xlab = "Months in study",
+  fun = "cumhaz"
+)
+```
+
+```{r}
+#| fig-width: 6
+#| fig-height: 6
+#| warning: false
+
+fit <- survfit(Surv(months, status) ~ olfaction.BL, data=df_surv)
+ggsurvplot(
+  fit,
+  conf.int = TRUE,          # Add confidence interval
+  pval = TRUE,              # Add p-value
+  censor.shape="|", 
+  censor.size = 4,
+  risk.table = TRUE,        # Add risk table
+  risk.table.col = "strata",
+  risk.table.y.text.col = T, # colour risk table text annotations.
+  risk.table.y.text = FALSE, # show bars instead of names in text annotations in legend of risk table
+  risk.table.height = 0.2, # the height of the risk table
+  ncensor.plot = TRUE,      # plot the number of censored subjects at time t
+  ncensor.plot.height = 0.2,
+  surv.median.line = "hv",  # add the median survival pointer.
+  ggtheme = theme_bw(),      # Change ggplot2 theme
+  ylab = "Not converted probablity",
+  xlab = "Months in study"
+)
+
+# log rank test
+survdiff(Surv(months, status) ~ olfaction.BL, data=df_surv)
+```
+
+```{r}
+#| warning: false
+
+ggsurvplot(
+  fit,
+  conf.int = TRUE,          # Add confidence interval
+  pval = TRUE,              # Add p-value
+  censor.shape="|", 
+  censor.size = 4,
+  ggtheme = theme_bw(),      # Change ggplot2 theme
+  xlab = "Months in study",
+  fun = "cumhaz"
+)
+```
+
+```{r}
+#| fig-width: 6
+#| fig-height: 6
+#| warning: false
+
+fit <- survfit(Surv(months, status) ~ smell_cat, data=df_surv)
+ggsurvplot(
+  fit,
+  conf.int = TRUE,          # Add confidence interval
+  pval = TRUE,              # Add p-value
+  censor.shape="|", 
+  censor.size = 4,
+  risk.table = TRUE,        # Add risk table
+  risk.table.col = "strata",
+  risk.table.y.text.col = T, # colour risk table text annotations.
+  risk.table.y.text = FALSE, # show bars instead of names in text annotations in legend of risk table
+  risk.table.height = 0.2, # the height of the risk table
+  ncensor.plot = TRUE,      # plot the number of censored subjects at time t
+  ncensor.plot.height = 0.2,
+  surv.median.line = "hv",  # add the median survival pointer.
+  ggtheme = theme_bw(),      # Change ggplot2 theme
+  ylab = "Not converted probablity",
+  xlab = "Months in study"
+)
+
+# log rank test
+survdiff(Surv(months, status) ~ smell_cat, data=df_surv)
+```
+
+```{r}
+#| warning: false
+
+ggsurvplot(
+  fit,
+  conf.int = TRUE,          # Add confidence interval
+  pval = TRUE,              # Add p-value
+  censor.shape="|", 
+  censor.size = 4,
+  ggtheme = theme_bw(),      # Change ggplot2 theme
+  xlab = "Months in study",
+  fun = "cumhaz"
+)
+```
+
+## The Cox proportional hazards model
+
+```{r}
+df_cph <- df_surv %>% 
+  mutate(status = status + 1) # the Surv() function accepts a status variable with 1=censored and 2=event
+
+fit.cox <- coxph(Surv(months, status) ~ age + sex + smell_cat, data=df_cph)
+# summary of results
+summary(fit.cox)
+
+# Get the Baseline Cumulative Hazard
+baseline_hazard <- basehaz(fit.cox)
+
+fit.cox.tab <- tidy(fit.cox, exponentiate=T, conf.int=T) 
+fit.cox.tab
+
+# plot of hazard ratios and 95% CIs
+ggplot(fit.cox.tab, 
+       aes(y=term, x=estimate, xmin=conf.low, xmax=conf.high)) + 
+  geom_pointrange() +  # plots center point (x) and range (xmin, xmax)
+  geom_vline(xintercept=1, color="red") + # vertical line at HR=1
+  labs(x="hazard ratio", title="Hazard ratios and 95% CIs", y ="") +
+  theme_classic()
+```
+
+```{r}
+# Assessing the proportional hazards assumption
+# https://stats.oarc.ucla.edu/wp-content/uploads/2025/02/survival_r_full.html
+cox.zph(fit.cox)
+plot(cox.zph(fit.cox))
+```
+
+## ROC/AUC of SST-ID scores for prevalence cases
+
+```{r}
+#| warning: false
+#| fig-width: 6
+#| fig-height: 8
+
+# remove visits after pheno-conversion
+dfPlt <- data_old %>% 
+  mutate(after_conversion = ifelse(!is.na(RBD_conversion_age) & age > RBD_conversion_age, 1, 0)) %>% 
+  filter(after_conversion == 0, status.current != "Converted", !is.na(SST.ID.BL)) %>% 
+  droplevels()
+
+p_visits <- ggplot(dfPlt, aes(months, ID)) +
+  geom_line(aes(group = ID), alpha = 0.5)+
+  geom_point(aes(group = ID, color = status.current, shape = status.current, size = status.current)) +
+  scale_y_continuous(breaks = unique(data$ID), labels = unique(data$ID))+
+  scale_color_manual(values = c("brown", "forestgreen", "black", "blue")) +
+  scale_shape_manual(values = c(15, 8, 17, 1)) +
+  scale_size_manual(values = c(2, 2, 2, 0.5)) +
+  labs(x = "Months in study")+
+  theme_bw() +
+  theme(text = element_text(size = 12),
+        axis.title.y = element_blank(),
+        legend.title = element_blank(),
+        legend.position = c(0.7, 0.88))
+
+# evaluation time points
+evaluation_time <- c(24, 48, 72, 96)
+for (time in c(24, 48, 72, 96)) {
+  pi <- p_visits + geom_vline(xintercept = time, linetype = "dashed") +
+    annotate("rect", ymin = -Inf, ymax = Inf, xmin = -Inf, xmax = time, fill = "purple", alpha = 0.1) +
+    labs(title = paste0("Month ", time))
+  
+  print(pi)
+}
+```
+
+```{r}
+df_surv <- df_surv %>% filter(!is.na(SST.ID.BL))
+for (time in evaluation_time) {
+  df_surv <- df_surv %>% 
+    mutate(new = case_when(
+      converted == "Converted" & months <= time ~ 1,    # already converted at/before this time
+      converted == "Converted" & months > time ~ 0,     # not converted yet at this time
+      converted == "Not converted" & months >= time ~ 0, # confirmed: not converted at this time
+      TRUE ~ NA                                                              # censored
+    ))
+  print(paste0("month ", time))
+  print(table(df_surv$new, useNA = "ifany"))
+  names(df_surv)[which(names(df_surv) == "new")] <- paste0("p_", time)
+}
+```
+
+```{r}
+vec <- c("SST.ID.BL")
+res <- data.frame(time = rep(paste0("month ", evaluation_time), each = length(vec)),
+                  group = rep(paste0("p_", evaluation_time), each = length(vec)),
+                  var  = rep(vec, length(evaluation_time)),
+                  auc  = rep(NA, length(vec)*length(evaluation_time)),
+                  ci1  = rep(NA, length(vec)*length(evaluation_time)),
+                  ci2  = rep(NA, length(vec)*length(evaluation_time)))
+for (i in seq_len(nrow(res))) {
+  df_i <- df_surv %>% select(all_of(res$group[i]), all_of(res$var[i]))
+  names(df_i) <- c("group", "value")
+  
+  roc_1 <- roc(df_i$group, df_i$value, levels=c(0,1), na.rm=TRUE, ci=TRUE) 
+  res$auc[i] <- roc_1$auc
+  res$ci1[i] <- roc_1$ci[1]
+  res$ci2[i] <- roc_1$ci[3]
+}
+
+res <- res %>% arrange(var)
+res$value <- paste0(round(res$auc, 3), " (", round(res$ci1, 3), "-", round(res$ci2, 3), ")")
+res %>% select(time:var, value)
+```
+
+## Cumulative case/dynamic control ROC
+
+https://datascienceplus.com/time-dependent-roc-for-survival-prediction-models-in-r/
+
+```{r}
+library(survivalROC)
+library(purrr) # map, map_dbl
+
+## Define a helper function to evaluate at various t
+survivalROC_helper <- function(t) {
+    survivalROC(Stime        = df_surv$months,
+                status       = df_surv$status,
+                marker       = -df_surv$SST.ID.BL, # for the ROC direction
+                predict.time = t,
+                method       = "KM")
+}
+
+## Evaluate at evaluation_time
+survivalROC_data <- data_frame(t = evaluation_time) %>%
+    mutate(survivalROC = map(t, survivalROC_helper),
+           ## Extract scalar AUC
+           auc = map_dbl(survivalROC, magrittr::extract2, "AUC"),
+           ## Put cut off dependent values in a data_frame
+           df_survivalROC = map(survivalROC, function(obj) {
+               as_data_frame(obj[c("cut.values","TP","FP")])
+           })) %>%
+    dplyr::select(-survivalROC) %>%
+    unnest() %>%
+    arrange(t, FP, TP)
+
+## Plot
+survivalROC_data %>%
+    ggplot(mapping = aes(x = FP, y = TP)) +
+    geom_point() +
+    geom_line() +
+    geom_label(data = survivalROC_data %>% dplyr::select(t,auc) %>% unique,
+               mapping = aes(label = sprintf("%.3f", auc)), x = 0.5, y = 0.5) +
+    facet_wrap( ~ t) +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5),
+          legend.key = element_blank(),
+          plot.title = element_text(hjust = 0.5),
+          strip.background = element_blank())
+```
+
+```{r}
+#| warning: false
+#| fig-width: 6
+#| fig-height: 8
+
+## look deeper
+unique.t0 <- unique(df_surv$months)
+(unique.t0 <- unique.t0[order(unique.t0)])
+(n.times <- sum(unique.t0 <= 24))
+  
+p_visits +
+  geom_vline(xintercept = unique.t0[1:n.times], linetype = "dashed", color = "red") +
+  annotate("rect", ymin = -Inf, ymax = Inf, xmin = -Inf, xmax = 24, fill = "purple", alpha = 0.1) +
+  labs(title = "Month 24")
+```
+
+## A tidymodels approach
+
+https://www.tidyverse.org/blog/2024/04/tidymodels-survival-analysis/
+
+No data splitting: https://www.tidymodels.org/learn/statistics/survival-metrics/
+
+With data splitting and workflow: https://www.tidymodels.org/learn/statistics/survival-case-study/
+
+`roc_auc_survival`: https://yardstick.tidymodels.org/reference/roc_auc_survival.html
+
+```{r}
+library(tidymodels)
+library(censored)
+```
+
+```{r}
+df_surv_tm <- df_surv %>% 
+  # remove months == 0
+  # https://stats.stackexchange.com/questions/176376/invalid-survival-times-for-this-distribution
+  filter(months > 0) %>% 
+  mutate(conversion_surv = Surv(months, status == 1))
+
+# define model
+survreg_spec <- survival_reg() %>% 
+  set_engine("survival") %>% 
+  set_mode("censored regression")
+
+# performance metrics
+survival_metrics <- metric_set(brier_survival_integrated, brier_survival,
+                               roc_auc_survival, concordance_survival)
+```
+
+```{r}
+score_fit <- survreg_spec %>% fit(conversion_surv ~ SST.ID.BL, data = df_surv_tm)
+
+score_pred <- augment(score_fit, df_surv_tm, eval_time = evaluation_time)
+
+res <- survival_metrics(score_pred, truth = conversion_surv, .pred, estimate = .pred_time) 
+res
+
+res <- res %>% 
+  filter(!is.na(.eval_time)) %>% 
+  droplevels()
+ggplot(res, aes(.eval_time, .estimate)) +
+  geom_line()+
+  geom_point()+
+  scale_x_continuous(breaks = evaluation_time) +
+  facet_grid(~.metric)+
+  labs(title = "SST-ID score at baseline",
+       x = "Time in study (month)",
+       y = "Metric value") +
+  theme_bw()
+```
+
+```{r}
+fit.cox <- coxph(Surv(months, status) ~ SST.ID.BL, data=df_cph)
+# summary of results
+summary(fit.cox)
+
+fit.cox.tab <- tidy(fit.cox, exponentiate=T, conf.int=T) 
+fit.cox.tab
+```
+
+```{r}
+```

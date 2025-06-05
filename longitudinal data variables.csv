@@ -1,0 +1,36 @@
+variable,type,label,unit,min,max,has_NA,description
+ID,num,,,1,54,No,Mock study ids
+visit,cat,"baseline; 
+24FU;  
+48FU; 
+72FU;  
+96FU",,,,No,"Study visits, every 2 years (24 months), FU = follow-up"
+months,num,,month,0,103,No,Actual time in study (by the time of 96FU)
+RBD_duration,num,,year,0,13,Yes,Duration since RBD diagnosis at each study visit
+RBD_conversion_age,num,,year,,,Yes,Age at pheno-conversion
+time_to_conversion,num,,year,-8,7,Yes,Time relative to pheno-conversion: before - negative; after - positive
+converted,cat,"Not converted;
+Converted",,,,No,If the participant has converted (by the time of 96FU)
+diagnosis,cat,"PD;
+DLB;
+unclear",,,,Yes,Diagnosis if converted
+sex,cat,"Female;
+Male",,,,No,
+age,num,,year,22,85,Yes,Exact age at each visit
+Sniffin.Sticks.ID,num,,,0,16,Yes,Sniffin' Sticks Identification test score
+SST.ID.percentile,num,,,0,100,Yes,Age- and sex-adjusted percentile of SST-ID score
+olfaction,cat,"Normal;
+Reduced",,,,Yes,Reduced olfaction (hyposmia/anosmia) is defined by SST-ID percentile <= 10%
+SST.ID.BL,num,,,0,16,Yes,SST-ID score at baseline
+SST.ID.perc.BL,num,,,0,100,Yes,SST-ID percentile at baseline
+olfaction.BL,cat,"Normal;
+Reduced",,,,Yes,Olfaction catgory at baseline
+status.current,cat,"In study; Converted; 
+Lost; 
+Dead  ",,,,No,Current status
+is_converted,cat,"Not yet converted;
+Already converted",,,,Yes,If the participant has converted at the current study
+is_lost,cat,"No;
+Yes",,,,No,If the participant has losted at the current study
+is_dead,cat,"No;
+Yes",,,,No,If the participant has died at the current study
